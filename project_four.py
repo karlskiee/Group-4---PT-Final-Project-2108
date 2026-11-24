@@ -1,551 +1,571 @@
-"""
-PT 101 - Platform Technologies | Final Project
-Topic 4: Disk Scheduling Algorithms (FCFS, SSTF, SCAN / Elevator)
-
-Reference:
-    Silberschatz, A., Galvin, P. B., & Gagne, G. (Operating System Concepts)
-"""
-
 import tkinter as tk
 from tkinter import ttk, messagebox
+from collections import deque
 
 
 # ==============================================================================
-# PART 1: INPUT VALIDATION
-# Checks that all inputs are numbers and stay within [disk_min, disk_max].
-# ==============================================================================
-def validate_inputs(min_text, max_text, head_text, queue_text):
-    # 1. Check disk minimum and maximum
-    try:
-        disk_min = int(min_text.strip())
-        disk_max = int(max_text.strip())
-    except ValueError:
-        return False, "Disk Minimum and Maximum must be whole numbers."
-
-    if disk_min < 0:
-        return False, "Disk Minimum cannot be negative."
-    if disk_min >= disk_max:
-        return False, "Disk Minimum must be less than Disk Maximum."
-
-    # 2. Check initial head position
-    try:
-        initial_head = int(head_text.strip())
-    except ValueError:
-        return False, "Initial Head Position must be a whole number."
-
-    if initial_head < disk_min or initial_head > disk_max:
-        return False, f"Initial Head must be between {disk_min} and {disk_max}."
-
-    # 3. Check request queue (accepts commas or spaces)
-    cleaned_text = queue_text.replace(",", " ")
-    items = cleaned_text.split()
-
-    if len(items) == 0:
-        return False, "Please enter at least one cylinder request."
-
-    request_queue = []
-    for item in items:
-        try:
-            cylinder = int(item)
-        except ValueError:
-            return False, f"'{item}' is not a valid cylinder number."
-
-        if cylinder < disk_min or cylinder > disk_max:
-            return False, f"Request {cylinder} is outside the disk range ({disk_min}-{disk_max})."
-
-        request_queue.append(cylinder)
-
-    return True, (disk_min, disk_max, initial_head, request_queue)
-
-
-# ==============================================================================
-# PART 2: DISK SCHEDULING ALGORITHMS (FCFS, SSTF, SCAN)
-# Each function returns: (service_sequence, step_list, total_movement)
+# 1. SCHEDULING ALGORITHMS (Pure Logic - Separated from UI for Easy Explanation)
 # ==============================================================================
 
-def solve_fcfs(initial_head, request_queue):
-    """
-    FCFS (First-Come, First-Served):
-    Services requests in the exact order they appear in the queue.
-    """
-    current = initial_head
-    total_movement = 0
-    sequence = [str(initial_head)]
-    steps = []
+def simulate_fcfs(processes):
+    """First-Come, First-Served (Non-preemptive)."""
+    # Sort by Arrival Time, then by original order
+    ordered = sorted(processes, key=lambda p: (p["at"], p["order"]))
+    current_time = 0
+    gantt = []
+    results = []
 
-    step_number = 1
-    for target in request_queue:
-        movement = abs(current - target)
-        total_movement += movement
+    for p in ordered:
+        if current_time < p["at"]:
+            gantt.append(("IDLE", current_time, p["at"]))
+            current_time = p["at"]
 
-        steps.append((
-            step_number,
-            current,
-            target,
-            f"|{current} - {target}|",
-            movement,
-            total_movement,
-            "Next in queue"
-        ))
+        start = current_time
+        end = start + p["bt"]
+        gantt.append((p["pid"], start, end))
 
-        sequence.append(str(target))
-        current = target
-        step_number += 1
+        ct = end
+        tat = ct - p["at"]
+        wt = tat - p["bt"]
+        results.append({
+            "pid": p["pid"], "at": p["at"], "bt": p["bt"],
+            "ct": ct, "tat": tat, "wt": wt
+        })
+        current_time = end
 
-    return sequence, steps, total_movement
+    return results, gantt
 
 
-def solve_sstf(initial_head, request_queue):
-    """
-    SSTF (Shortest Seek Time First):
-    Always picks the unvisited request closest to the current head position.
-    """
-    current = initial_head
-    unvisited = list(request_queue)  # Make a copy so original queue stays intact
-    total_movement = 0
-    sequence = [str(initial_head)]
-    steps = []
+def simulate_sjf(processes):
+    """Shortest Job First (Non-preemptive)."""
+    remaining = [p.copy() for p in processes]
+    current_time = 0
+    gantt = []
+    results = []
 
-    step_number = 1
-    while len(unvisited) > 0:
-        # Find the request with the smallest distance from the current head
-        closest_req = unvisited[0]
-        shortest_dist = abs(current - closest_req)
+    while remaining:
+        # Filter processes that have already arrived
+        available = [p for p in remaining if p["at"] <= current_time]
 
-        for req in unvisited:
-            dist = abs(current - req)
-            if dist < shortest_dist:
-                shortest_dist = dist
-                closest_req = req
+        if not available:
+            # Jump to the next arriving process if CPU is idle
+            next_arrival = min(p["at"] for p in remaining)
+            gantt.append(("IDLE", current_time, next_arrival))
+            current_time = next_arrival
+            continue
 
-        # Move to the closest request and remove it from unvisited
-        unvisited.remove(closest_req)
-        total_movement += shortest_dist
+        # Pick the shortest burst time (tie-breaker: arrival time, then order)
+        chosen = min(available, key=lambda p: (p["bt"], p["at"], p["order"]))
+        remaining.remove(chosen)
 
-        steps.append((
-            step_number,
-            current,
-            closest_req,
-            f"|{current} - {closest_req}|",
-            shortest_dist,
-            total_movement,
-            "Closest cylinder"
-        ))
+        start = current_time
+        end = start + chosen["bt"]
+        gantt.append((chosen["pid"], start, end))
 
-        sequence.append(str(closest_req))
-        current = closest_req
-        step_number += 1
+        ct = end
+        tat = ct - chosen["at"]
+        wt = tat - chosen["bt"]
+        results.append({
+            "pid": chosen["pid"], "at": chosen["at"], "bt": chosen["bt"],
+            "ct": ct, "tat": tat, "wt": wt
+        })
+        current_time = end
 
-    return sequence, steps, total_movement
+    return results, gantt
 
 
-def solve_scan(initial_head, request_queue, disk_min, disk_max, direction, reach_boundary):
-    """
-    SCAN (Elevator Algorithm):
-    Sweeps in the chosen direction, servicing requests along the way.
-    Reaches the disk boundary before reversing if requests exist on the other side.
-    """
-    current = initial_head
-    total_movement = 0
-    sequence = [str(initial_head)]
-    steps = []
-    step_number = 1
+def simulate_rr(processes, quantum):
+    """Round Robin (Preemptive with Time Quantum)."""
+    ordered = sorted(processes, key=lambda p: (p["at"], p["order"]))
+    remaining_bt = {p["pid"]: p["bt"] for p in ordered}
+    ready_queue = deque()
+    gantt = []
+    results = []
 
-    # Separate requests into Left (< initial_head), Right (> initial_head), and Equal
-    equal_requests = []
-    left_requests = []
-    right_requests = []
+    current_time = 0
+    idx = 0
+    total = len(ordered)
 
-    for req in request_queue:
-        if req == initial_head:
-            equal_requests.append(req)
-        elif req < initial_head:
-            left_requests.append(req)
+    while idx < total or ready_queue:
+        # If no process is ready, advance time to the next arrival
+        if not ready_queue:
+            if current_time < ordered[idx]["at"]:
+                gantt.append(("IDLE", current_time, ordered[idx]["at"]))
+                current_time = ordered[idx]["at"]
+            while idx < total and ordered[idx]["at"] <= current_time:
+                ready_queue.append(ordered[idx])
+                idx += 1
+
+        current_proc = ready_queue.popleft()
+        pid = current_proc["pid"]
+
+        run_time = min(quantum, remaining_bt[pid])
+        start = current_time
+        end = start + run_time
+        gantt.append((pid, start, end))
+
+        current_time = end
+        remaining_bt[pid] -= run_time
+
+        # Add newly arrived processes BEFORE re-queueing the current process
+        while idx < total and ordered[idx]["at"] <= current_time:
+            ready_queue.append(ordered[idx])
+            idx += 1
+
+        if remaining_bt[pid] > 0:
+            ready_queue.append(current_proc)
         else:
-            right_requests.append(req)
+            ct = current_time
+            tat = ct - current_proc["at"]
+            wt = tat - current_proc["bt"]
+            results.append({
+                "pid": pid, "at": current_proc["at"], "bt": current_proc["bt"],
+                "ct": ct, "tat": tat, "wt": wt
+            })
 
-    # Sort left side descending (e.g., 37, 14) and right side ascending (e.g., 65, 98)
-    left_requests.sort(reverse=True)
-    right_requests.sort()
-
-    # First, service any request already at the starting head position
-    for req in equal_requests:
-        steps.append((step_number, current, req, f"|{current} - {req}|", 0, total_movement, "Already at head"))
-        sequence.append(str(req))
-        step_number += 1
-
-    if direction == "Left":
-        # 1. Move Left towards disk_min
-        for req in left_requests:
-            movement = abs(current - req)
-            total_movement += movement
-            steps.append((step_number, current, req, f"|{current} - {req}|", movement, total_movement, "Moving Left"))
-            sequence.append(str(req))
-            current = req
-            step_number += 1
-
-        # 2. If there are requests on the Right, hit disk_min first (if enabled), then reverse
-        if len(right_requests) > 0:
-            if reach_boundary and current != disk_min:
-                movement = abs(current - disk_min)
-                total_movement += movement
-                steps.append((
-                    step_number, current, disk_min, f"|{current} - {disk_min}|",
-                    movement, total_movement, "Hit Min Boundary"
-                ))
-                sequence.append(f"[{disk_min}]")
-                current = disk_min
-                step_number += 1
-
-            for req in right_requests:
-                movement = abs(current - req)
-                total_movement += movement
-                steps.append((step_number, current, req, f"|{current} - {req}|", movement, total_movement, "Reversed Right"))
-                sequence.append(str(req))
-                current = req
-                step_number += 1
-
-    else:  # direction == "Right"
-        # 1. Move Right towards disk_max
-        for req in right_requests:
-            movement = abs(current - req)
-            total_movement += movement
-            steps.append((step_number, current, req, f"|{current} - {req}|", movement, total_movement, "Moving Right"))
-            sequence.append(str(req))
-            current = req
-            step_number += 1
-
-        # 2. If there are requests on the Left, hit disk_max first (if enabled), then reverse
-        if len(left_requests) > 0:
-            if reach_boundary and current != disk_max:
-                movement = abs(current - disk_max)
-                total_movement += movement
-                steps.append((
-                    step_number, current, disk_max, f"|{current} - {disk_max}|",
-                    movement, total_movement, "Hit Max Boundary"
-                ))
-                sequence.append(f"[{disk_max}]")
-                current = disk_max
-                step_number += 1
-
-            for req in left_requests:
-                movement = abs(current - req)
-                total_movement += movement
-                steps.append((step_number, current, req, f"|{current} - {req}|", movement, total_movement, "Reversed Left"))
-                sequence.append(str(req))
-                current = req
-                step_number += 1
-
-    return sequence, steps, total_movement
+    # Sort results by PID order for clean table display
+    results.sort(key=lambda r: next(p["order"] for p in processes if p["pid"] == r["pid"]))
+    return results, gantt
 
 
 # ==============================================================================
-# PART 3: GUI HELPER FUNCTIONS (UPDATING TABLES & DRAWING THE CHART)
+# 2. GRAPHICAL USER INTERFACE (Tkinter Dark Dashboard)
 # ==============================================================================
 
-def fill_trace_table(tree, steps):
-    """Clears and fills a step-by-step trace table."""
-    for row in tree.get_children():
-        tree.delete(row)
+class SchedulerApp:
+    # Color Palette
+    BG_MAIN = "#0F172A"      # Dark Slate
+    BG_CARD = "#1E293B"      # Card Surface
+    BG_INPUT = "#334155"     # Input Fields
+    FG_TEXT = "#F8FAFC"      # Primary Text
+    FG_MUTED = "#94A3B8"     # Secondary Text
+    ACCENT = "#38BDF8"       # Sky Blue
+    SUCCESS = "#22C55E"      # Green
+    DANGER = "#EF4444"       # Red
 
-    for step in steps:
-        tree.insert("", "end", values=(
-            step[0],              # Step #
-            step[1],              # From Cylinder
-            step[2],              # To Cylinder
-            step[3],              # Formula |a - b|
-            f"{step[4]} cyl",     # Movement
-            f"{step[5]} cyl",     # Cumulative Total
-            step[6]               # Note
-        ))
-
-
-def draw_seek_chart(canvas, disk_min, disk_max, initial_head, fcfs_steps, sstf_steps, scan_steps):
-    """Draws a simple line graph showing how the disk head moves across cylinders."""
-    canvas.delete("all")
-
-    # Canvas dimensions and margins
-    left_margin = 50
-    right_margin = 630
-    top_margin = 35
-    bottom_margin = 205
-    usable_width = right_margin - left_margin
-    usable_height = bottom_margin - top_margin
-
-    # Draw top axis line and cylinder markers (Min, Middle, Max)
-    canvas.create_line(left_margin, top_margin, right_margin, top_margin, fill="black", width=2)
-    mid_cyl = (disk_min + disk_max) // 2
-
-    for cyl, x_pos in [(disk_min, left_margin), (mid_cyl, (left_margin + right_margin) // 2), (disk_max, right_margin)]:
-        canvas.create_line(x_pos, top_margin - 5, x_pos, bottom_margin, fill="#E0E0E0", dash=(3, 3))
-        canvas.create_text(x_pos, top_margin - 15, text=str(cyl), font=("Arial", 9, "bold"))
-
-    # Helper function to plot one algorithm's path
-    def plot_path(steps, color):
-        # Build list of visited cylinders starting from initial_head
-        cylinders = [initial_head]
-        for s in steps:
-            cylinders.append(s[2])
-
-        total_points = len(cylinders)
-        y_gap = usable_height / max(1, total_points - 1)
-
-        coords = []
-        for i in range(total_points):
-            # Convert cylinder number to X pixel position
-            ratio = (cylinders[i] - disk_min) / (disk_max - disk_min)
-            x = left_margin + (ratio * usable_width)
-            y = top_margin + (i * y_gap)
-            coords.append((x, y, cylinders[i]))
-
-        # Connect points with lines and draw dots
-        for i in range(len(coords) - 1):
-            canvas.create_line(coords[i][0], coords[i][1], coords[i + 1][0], coords[i + 1][1], fill=color, width=2)
-
-        for x, y, cyl in coords:
-            canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill=color, outline=color)
-            canvas.create_text(x, y - 9, text=str(cyl), fill=color, font=("Arial", 8, "bold"))
-
-    # Plot all three algorithms in distinct colors
-    plot_path(fcfs_steps, "red")
-    plot_path(sstf_steps, "blue")
-    plot_path(scan_steps, "green")
-
-
-def run_simulation():
-    """Main button action: validates inputs, runs all 3 algorithms, and updates the UI."""
-    valid, result = validate_inputs(
-        min_entry.get(),
-        max_entry.get(),
-        head_entry.get(),
-        queue_entry.get()
-    )
-
-    if not valid:
-        messagebox.showerror("Invalid Input", result)
-        return
-
-    disk_min, disk_max, initial_head, request_queue = result
-    direction = scan_dir_var.get()
-    reach_boundary = boundary_var.get()
-
-    # Run the 3 algorithms
-    fcfs_seq, fcfs_steps, fcfs_total = solve_fcfs(initial_head, request_queue)
-    sstf_seq, sstf_steps, sstf_total = solve_sstf(initial_head, request_queue)
-    scan_seq, scan_steps, scan_total = solve_scan(
-        initial_head, request_queue, disk_min, disk_max, direction, reach_boundary
-    )
-
-    # Update Summary Info Label
-    summary_label.config(
-        text=f"Initial Head: {initial_head}   |   Disk Range: {disk_min} to {disk_max}   |   Request Queue: {request_queue}"
-    )
-
-    # Update Comparison Table
-    for row in comp_tree.get_children():
-        comp_tree.delete(row)
-
-    num_requests = len(request_queue)
-    lowest_total = min(fcfs_total, sstf_total, scan_total)
-
-    rows = [
-        ("FCFS (First-Come, First-Served)", fcfs_total, round(fcfs_total / num_requests, 2), " -> ".join(fcfs_seq)),
-        ("SSTF (Shortest Seek Time First)", sstf_total, round(sstf_total / num_requests, 2), " -> ".join(sstf_seq)),
-        (f"SCAN / Elevator ({direction})", scan_total, round(scan_total / num_requests, 2), " -> ".join(scan_seq)),
+    GANTT_COLORS = [
+        "#38BDF8", "#818CF8", "#34D399", "#FBBF24",
+        "#F472B6", "#A78BFA", "#FB923C", "#2DD4BF"
     ]
 
-    for algo_name, total_mov, avg_mov, seq_str in rows:
-        remark = "Best (Lowest Movement)" if total_mov == lowest_total else "-"
-        comp_tree.insert("", "end", values=(algo_name, f"{total_mov} cylinders", f"{avg_mov} cyl", remark, seq_str))
+    def __init__(self, root):
+        self.root = root
+        self.root.title("OS Process Scheduling Lab")
+        self.root.geometry("1120x720")
+        self.root.minsize(980, 650)
+        self.root.configure(bg=self.BG_MAIN)
 
-    # Update Individual Trace Tables & Totals
-    fcfs_header.config(text=f"FCFS Service Sequence: {' -> '.join(fcfs_seq)}\nTotal Head Movement: {fcfs_total} cylinders")
-    sstf_header.config(text=f"SSTF Service Sequence: {' -> '.join(sstf_seq)}\nTotal Head Movement: {sstf_total} cylinders")
-    scan_header.config(text=f"SCAN Service Sequence: {' -> '.join(scan_seq)}\nTotal Head Movement: {scan_total} cylinders")
+        self.processes = []
+        self.process_counter = 1
 
-    fill_trace_table(fcfs_tree, fcfs_steps)
-    fill_trace_table(sstf_tree, sstf_steps)
-    fill_trace_table(scan_tree, scan_steps)
+        self._configure_styles()
+        self._build_header()
+        self._build_main_workspace()
+        self._build_gantt_section()
 
-    # Draw Visual Chart
-    draw_seek_chart(chart_canvas, disk_min, disk_max, initial_head, fcfs_steps, sstf_steps, scan_steps)
+    def _configure_styles(self):
+        style = ttk.Style()
+        style.theme_use("clam")
 
+        style.configure(
+            "Treeview",
+            background=self.BG_CARD,
+            foreground=self.FG_TEXT,
+            fieldbackground=self.BG_CARD,
+            rowheight=28,
+            borderwidth=0,
+            font=("Segoe UI", 10)
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=self.BG_INPUT,
+            foreground=self.FG_TEXT,
+            font=("Segoe UI", 10, "bold"),
+            borderwidth=0
+        )
+        style.map("Treeview", background=[("selected", "#0284C7")])
 
-def load_test_case(d_min, d_max, head, queue, direction):
-    """Fills the input boxes with a preset test case and runs it."""
-    min_entry.delete(0, tk.END)
-    min_entry.insert(0, d_min)
+    # --- Top Navigation / Control Bar ---
+    def _build_header(self):
+        header = tk.Frame(self.root, bg=self.BG_CARD, padx=20, pady=14)
+        header.pack(fill="x", padx=16, pady=(16, 10))
 
-    max_entry.delete(0, tk.END)
-    max_entry.insert(0, d_max)
+        title_frame = tk.Frame(header, bg=self.BG_CARD)
+        title_frame.pack(side="left")
+        tk.Label(
+            title_frame, text="OS Process Scheduling Lab",
+            font=("Segoe UI", 16, "bold"), bg=self.BG_CARD, fg=self.ACCENT
+        ).pack(anchor="w")
+        tk.Label(
+            title_frame, text="Simulate FCFS, Non-Preemptive SJF, and Round Robin",
+            font=("Segoe UI", 9), bg=self.BG_CARD, fg=self.FG_MUTED
+        ).pack(anchor="w")
 
-    head_entry.delete(0, tk.END)
-    head_entry.insert(0, head)
+        controls = tk.Frame(header, bg=self.BG_CARD)
+        controls.pack(side="right")
 
-    queue_entry.delete(0, tk.END)
-    queue_entry.insert(0, queue)
+        tk.Label(
+            controls, text="Algorithm:", font=("Segoe UI", 10, "bold"),
+            bg=self.BG_CARD, fg=self.FG_TEXT
+        ).pack(side="left", padx=(0, 6))
 
-    scan_dir_var.set(direction)
-    boundary_var.set(True)
-    run_simulation()
+        self.algo_var = tk.StringVar(value="FCFS")
+        self.algo_menu = ttk.Combobox(
+            controls, textvariable=self.algo_var, state="readonly", width=18,
+            values=["FCFS", "SJF (Non-Preemptive)", "Round Robin"]
+        )
+        self.algo_menu.pack(side="left", padx=(0, 14))
+        self.algo_menu.bind("<<ComboboxSelected>>", self._toggle_quantum)
 
+        tk.Label(
+            controls, text="Quantum:", font=("Segoe UI", 10, "bold"),
+            bg=self.BG_CARD, fg=self.FG_TEXT
+        ).pack(side="left", padx=(0, 6))
 
-def clear_all():
-    """Clears all input fields."""
-    min_entry.delete(0, tk.END)
-    max_entry.delete(0, tk.END)
-    head_entry.delete(0, tk.END)
-    queue_entry.delete(0, tk.END)
+        self.quantum_entry = tk.Entry(
+            controls, width=6, font=("Segoe UI", 10),
+            bg=self.BG_INPUT, fg=self.FG_TEXT, insertbackground=self.FG_TEXT,
+            relief="flat", disabledbackground="#1E293B", disabledforeground="#475569"
+        )
+        self.quantum_entry.insert(0, "2")
+        self.quantum_entry.config(state="disabled")
+        self.quantum_entry.pack(side="left", padx=(0, 16), ipady=4)
 
+        tk.Button(
+            controls, text="Load Sample", command=self.load_sample_data,
+            bg=self.BG_INPUT, fg=self.FG_TEXT, font=("Segoe UI", 9, "bold"),
+            relief="flat", padx=12, pady=6, cursor="hand2"
+        ).pack(side="left", padx=(0, 8))
 
-# ==============================================================================
-# PART 4: TKINTER GUI WINDOW LAYOUT
-# ==============================================================================
-window = tk.Tk()
-window.title("PT 101 - Topic 4: Disk Scheduling Simulator (FCFS, SSTF, SCAN)")
-window.geometry("1080x680")
+        tk.Button(
+            controls, text="Run Simulation", command=self.run_simulation,
+            bg=self.SUCCESS, fg="#052E16", font=("Segoe UI", 10, "bold"),
+            relief="flat", padx=16, pady=6, cursor="hand2"
+        ).pack(side="left")
 
-# Top Title Banner
-header_frame = tk.Frame(window, bg="#1F3A52", pady=10, padx=15)
-header_frame.pack(fill="x")
-tk.Label(
-    header_frame, text="DISK SCHEDULING SIMULATOR (FCFS, SSTF, SCAN)",
-    fg="white", bg="#1F3A52", font=("Arial", 14, "bold")
-).pack(anchor="w")
-tk.Label(
-    header_frame, text="PT 101 - Platform Technologies | Topic 4",
-    fg="#D9E2EC", bg="#1F3A52", font=("Arial", 9)
-).pack(anchor="w")
+    # --- Middle Split Workspace ---
+    def _build_main_workspace(self):
+        workspace = tk.Frame(self.root, bg=self.BG_MAIN)
+        workspace.pack(fill="both", expand=True, padx=16, pady=6)
+        workspace.columnconfigure(0, weight=4)
+        workspace.columnconfigure(1, weight=6)
+        workspace.rowconfigure(0, weight=1)
 
-# Main Layout Frame
-main_frame = tk.Frame(window, padx=10, pady=10)
-main_frame.pack(fill="both", expand=True)
+        # LEFT CARD: Process Input & Queue
+        left_card = tk.Frame(workspace, bg=self.BG_CARD, padx=16, pady=14)
+        left_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-# --- LEFT PANEL: USER INPUTS ---
-input_frame = tk.LabelFrame(main_frame, text="Input Parameters", font=("Arial", 10, "bold"), padx=12, pady=10)
-input_frame.pack(side="left", fill="y", padx=(0, 10))
+        tk.Label(
+            left_card, text="1. Process Queue", font=("Segoe UI", 12, "bold"),
+            bg=self.BG_CARD, fg=self.FG_TEXT
+        ).pack(anchor="w", pady=(0, 10))
 
-tk.Label(input_frame, text="Disk Minimum Cylinder:").pack(anchor="w")
-min_entry = tk.Entry(input_frame, width=28)
-min_entry.insert(0, "0")
-min_entry.pack(anchor="w", pady=(2, 8))
+        form = tk.Frame(left_card, bg=self.BG_CARD)
+        form.pack(fill="x", pady=(0, 10))
 
-tk.Label(input_frame, text="Disk Maximum Cylinder:").pack(anchor="w")
-max_entry = tk.Entry(input_frame, width=28)
-max_entry.insert(0, "199")
-max_entry.pack(anchor="w", pady=(2, 8))
+        # Input fields
+        self.pid_entry = self._create_labeled_input(form, "Process ID", 0, "P1")
+        self.at_entry = self._create_labeled_input(form, "Arrival (≥ 0)", 1, "0")
+        self.bt_entry = self._create_labeled_input(form, "Burst (≥ 1)", 2, "4")
 
-tk.Label(input_frame, text="Initial Head Position:").pack(anchor="w")
-head_entry = tk.Entry(input_frame, width=28)
-head_entry.insert(0, "53")
-head_entry.pack(anchor="w", pady=(2, 8))
+        btn_row = tk.Frame(left_card, bg=self.BG_CARD)
+        btn_row.pack(fill="x", pady=(0, 12))
 
-tk.Label(input_frame, text="Request Queue (comma/space separated):").pack(anchor="w")
-queue_entry = tk.Entry(input_frame, width=28)
-queue_entry.insert(0, "98, 183, 37, 122, 14, 124, 65, 67")
-queue_entry.pack(anchor="w", pady=(2, 10))
+        tk.Button(
+            btn_row, text="+ Add Process", command=self.add_process,
+            bg=self.ACCENT, fg="#082F49", font=("Segoe UI", 9, "bold"),
+            relief="flat", padx=12, pady=6, cursor="hand2"
+        ).pack(side="left", padx=(0, 8))
 
-tk.Label(input_frame, text="Initial SCAN Direction:").pack(anchor="w")
-scan_dir_var = tk.StringVar(value="Left")
-tk.Radiobutton(input_frame, text="Left (Towards Disk Min)", variable=scan_dir_var, value="Left").pack(anchor="w")
-tk.Radiobutton(input_frame, text="Right (Towards Disk Max)", variable=scan_dir_var, value="Right").pack(anchor="w")
+        tk.Button(
+            btn_row, text="Remove Selected", command=self.remove_selected,
+            bg=self.BG_INPUT, fg=self.FG_TEXT, font=("Segoe UI", 9),
+            relief="flat", padx=10, pady=6, cursor="hand2"
+        ).pack(side="left", padx=(0, 8))
 
-boundary_var = tk.BooleanVar(value=True)
-tk.Checkbutton(
-    input_frame, text="Reach disk boundary before reversing", variable=boundary_var
-).pack(anchor="w", pady=(8, 12))
+        tk.Button(
+            btn_row, text="Clear All", command=self.clear_all,
+            bg=self.DANGER, fg=self.FG_TEXT, font=("Segoe UI", 9, "bold"),
+            relief="flat", padx=10, pady=6, cursor="hand2"
+        ).pack(side="right")
 
-tk.Button(
-    input_frame, text="Calculate & Compare", bg="#2B6CB0", fg="white",
-    font=("Arial", 10, "bold"), width=24, command=run_simulation
-).pack(pady=4)
+        # Input Queue Table
+        self.queue_tree = ttk.Treeview(
+            left_card, columns=("pid", "at", "bt"), show="headings", height=8
+        )
+        for col, text in [("pid", "Process ID"), ("at", "Arrival Time"), ("bt", "Burst Time")]:
+            self.queue_tree.heading(col, text=text)
+            self.queue_tree.column(col, anchor="center", width=100)
+        self.queue_tree.pack(fill="both", expand=True)
 
-tk.Button(input_frame, text="Clear Inputs", width=24, command=clear_all).pack(pady=2)
+        # RIGHT CARD: Simulation Results & Metrics
+        right_card = tk.Frame(workspace, bg=self.BG_CARD, padx=16, pady=14)
+        right_card.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-# Preset Test Cases (for easy live demo)
-tk.Label(input_frame, text="Sample Test Cases:", font=("Arial", 9, "bold")).pack(anchor="w", pady=(15, 4))
-tk.Button(
-    input_frame, text="Test 1: Textbook Default", width=24,
-    command=lambda: load_test_case("0", "199", "53", "98, 183, 37, 122, 14, 124, 65, 67", "Left")
-).pack(pady=2)
-tk.Button(
-    input_frame, text="Test 2: SCAN Moving Right", width=24,
-    command=lambda: load_test_case("0", "199", "50", "82, 170, 43, 140, 24, 16, 190", "Right")
-).pack(pady=2)
-tk.Button(
-    input_frame, text="Test 3: Range 0 - 499", width=24,
-    command=lambda: load_test_case("0", "499", "215", "410, 95, 320, 15, 250, 480, 130", "Left")
-).pack(pady=2)
+        tk.Label(
+            right_card, text="2. Simulation Metrics & Results",
+            font=("Segoe UI", 12, "bold"), bg=self.BG_CARD, fg=self.FG_TEXT
+        ).pack(anchor="w", pady=(0, 10))
 
-# --- RIGHT PANEL: TABS FOR RESULTS ---
-notebook = ttk.Notebook(main_frame)
-notebook.pack(side="left", fill="both", expand=True)
+        # Metric Summary Cards
+        metrics_row = tk.Frame(right_card, bg=self.BG_CARD)
+        metrics_row.pack(fill="x", pady=(0, 12))
 
-# TAB 1: Comparison & Graph
-tab_summary = tk.Frame(notebook, padx=10, pady=10)
-notebook.add(tab_summary, text="Comparison & Visual Graph")
+        self.avg_wt_label = self._create_metric_box(metrics_row, "Average Waiting Time", "0.00")
+        self.avg_tat_label = self._create_metric_box(metrics_row, "Average Turnaround Time", "0.00")
 
-summary_label = tk.Label(tab_summary, text="", font=("Arial", 9, "bold"), fg="#1F3A52")
-summary_label.pack(anchor="w", pady=(0, 8))
+        # Results Table
+        cols = ("pid", "at", "bt", "ct", "tat", "wt")
+        headers = {
+            "pid": "PID", "at": "Arrival", "bt": "Burst",
+            "ct": "Completion", "tat": "Turnaround", "wt": "Waiting"
+        }
+        self.result_tree = ttk.Treeview(right_card, columns=cols, show="headings", height=8)
+        for col in cols:
+            self.result_tree.heading(col, text=headers[col])
+            self.result_tree.column(col, anchor="center", width=85)
+        self.result_tree.pack(fill="both", expand=True)
 
-comp_cols = ("Algorithm", "Total Movement", "Avg Movement", "Remark", "Service Sequence")
-comp_tree = ttk.Treeview(tab_summary, columns=comp_cols, show="headings", height=4)
-for col, width in [("Algorithm", 190), ("Total Movement", 120), ("Avg Movement", 100), ("Remark", 145), ("Service Sequence", 260)]:
-    comp_tree.heading(col, text=col)
-    comp_tree.column(col, width=width)
-comp_tree.pack(fill="x", pady=(0, 10))
+    # --- Bottom Section: Gantt Chart ---
+    def _build_gantt_section(self):
+        gantt_card = tk.Frame(self.root, bg=self.BG_CARD, padx=16, pady=12)
+        gantt_card.pack(fill="x", padx=16, pady=(6, 16))
 
-# Legend for the graph
-legend_frame = tk.Frame(tab_summary)
-legend_frame.pack(anchor="w", pady=(2, 2))
-tk.Label(legend_frame, text="Head Movement Graph:   ", font=("Arial", 9, "bold")).pack(side="left")
-tk.Label(legend_frame, text="■ FCFS   ", fg="red", font=("Arial", 9, "bold")).pack(side="left")
-tk.Label(legend_frame, text="■ SSTF   ", fg="blue", font=("Arial", 9, "bold")).pack(side="left")
-tk.Label(legend_frame, text="■ SCAN", fg="green", font=("Arial", 9, "bold")).pack(side="left")
+        tk.Label(
+            gantt_card, text="3. Gantt Chart Timeline",
+            font=("Segoe UI", 12, "bold"), bg=self.BG_CARD, fg=self.FG_TEXT
+        ).pack(anchor="w", pady=(0, 8))
 
-chart_canvas = tk.Canvas(tab_summary, width=680, height=230, bg="white", relief="solid", borderwidth=1)
-chart_canvas.pack(fill="both", expand=True, pady=(4, 0))
+        canvas_frame = tk.Frame(gantt_card, bg=self.BG_CARD)
+        canvas_frame.pack(fill="x")
 
-# Helper function to create the 3 identical Trace Tabs
-def create_trace_tab(tab_title):
-    tab = tk.Frame(notebook, padx=10, pady=10)
-    notebook.add(tab, text=tab_title)
+        self.gantt_canvas = tk.Canvas(
+            canvas_frame, height=110, bg=self.BG_MAIN, highlightthickness=0
+        )
+        h_scroll = ttk.Scrollbar(canvas_frame, orient="horizontal", command=self.gantt_canvas.xview)
+        self.gantt_canvas.configure(xscrollcommand=h_scroll.set)
 
-    header_lbl = tk.Label(tab, text="", font=("Arial", 10, "bold"), justify="left")
-    header_lbl.pack(anchor="w", pady=(0, 8))
+        self.gantt_canvas.pack(fill="x")
+        h_scroll.pack(fill="x")
 
-    cols = ("Step", "From", "To", "Formula", "Movement", "Cumulative", "Note")
-    tree = ttk.Treeview(tab, columns=cols, show="headings")
-    for col, width in [("Step", 50), ("From", 80), ("To", 80), ("Formula", 110), ("Movement", 95), ("Cumulative", 105), ("Note", 150)]:
-        tree.heading(col, text=col)
-        tree.column(col, width=width, anchor="center")
-    tree.pack(fill="both", expand=True)
+    # --- Helper UI Builders ---
+    def _create_labeled_input(self, parent, label_text, col, default_val):
+        box = tk.Frame(parent, bg=self.BG_CARD)
+        box.grid(row=0, column=col, sticky="ew", padx=(0, 8))
+        parent.columnconfigure(col, weight=1)
 
-    return header_lbl, tree
+        tk.Label(
+            box, text=label_text, font=("Segoe UI", 9),
+            bg=self.BG_CARD, fg=self.FG_MUTED
+        ).pack(anchor="w")
 
-fcfs_header, fcfs_tree = create_trace_tab("FCFS Step-by-Step")
-sstf_header, sstf_tree = create_trace_tab("SSTF Step-by-Step")
-scan_header, scan_tree = create_trace_tab("SCAN Step-by-Step")
+        entry = tk.Entry(
+            box, font=("Segoe UI", 10), bg=self.BG_INPUT, fg=self.FG_TEXT,
+            insertbackground=self.FG_TEXT, relief="flat"
+        )
+        entry.insert(0, default_val)
+        entry.pack(fill="x", ipady=5, pady=(2, 0))
+        return entry
 
-# TAB 5: User Guide
-tab_guide = tk.Frame(notebook, padx=12, pady=12)
-notebook.add(tab_guide, text="User Guide")
-guide_box = tk.Text(tab_guide, wrap="word", font=("Arial", 10))
-guide_box.insert("1.0", """HOW TO USE THIS PROGRAM:
-1. Enter the Disk Minimum and Maximum cylinder numbers (example: 0 to 199).
-2. Enter the Initial Head Position (where the read/write arm starts).
-3. Enter the Request Queue separated by commas or spaces.
-4. Select the Initial SCAN Direction (Left goes toward Min, Right goes toward Max).
-5. Click 'Calculate & Compare' to see the service sequence, step-by-step math, total head movement, and visual graph.
+    def _create_metric_box(self, parent, title, initial_value):
+        box = tk.Frame(parent, bg=self.BG_INPUT, padx=14, pady=10)
+        box.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
-FORMULAS USED:
-- Step Head Movement = |Current Cylinder - Next Cylinder|
-- Total Head Movement = Sum of all step movements
-- Average Seek Length = Total Head Movement / Number of Requests
-""")
-guide_box.config(state="disabled")
-guide_box.pack(fill="both", expand=True)
+        tk.Label(
+            box, text=title, font=("Segoe UI", 9),
+            bg=self.BG_INPUT, fg=self.FG_MUTED
+        ).pack(anchor="w")
 
-# Run default example when program opens
-run_simulation()
-window.mainloop()
+        val_label = tk.Label(
+            box, text=initial_value, font=("Segoe UI", 16, "bold"),
+            bg=self.BG_INPUT, fg=self.ACCENT
+        )
+        val_label.pack(anchor="w")
+        return val_label
+
+    # ==========================================================================
+    # 3. INPUT VALIDATION & ACTIONS (Blocks Negatives, Decimals, Letters)
+    # ==========================================================================
+
+    def _parse_whole_number(self, raw_value, field_name, min_val=0):
+        """
+        Strictly validates that input is a non-negative whole number.
+        Rejects empty strings, negative signs, decimals, and letters.
+        """
+        cleaned = raw_value.strip()
+        if not cleaned.isdigit():
+            messagebox.showerror(
+                "Invalid Input",
+                f"{field_name} must be a whole number (no negatives, decimals, or letters)."
+            )
+            return None
+
+        number = int(cleaned)
+        if number < min_val:
+            messagebox.showerror(
+                "Invalid Input",
+                f"{field_name} must be at least {min_val}."
+            )
+            return None
+
+        return number
+
+    def _toggle_quantum(self, event=None):
+        if self.algo_var.get() == "Round Robin":
+            self.quantum_entry.config(state="normal")
+        else:
+            self.quantum_entry.config(state="disabled")
+
+    def add_process(self):
+        pid = self.pid_entry.get().strip()
+        if not pid:
+            messagebox.showerror("Invalid Input", "Process ID cannot be empty.")
+            return
+
+        if any(p["pid"].lower() == pid.lower() for p in self.processes):
+            messagebox.showerror("Duplicate Process", f"Process '{pid}' already exists.")
+            return
+
+        at = self._parse_whole_number(self.at_entry.get(), "Arrival Time", min_val=0)
+        if at is None:
+            return
+
+        bt = self._parse_whole_number(self.bt_entry.get(), "Burst Time", min_val=1)
+        if bt is None:
+            return
+
+        self.processes.append({
+            "pid": pid, "at": at, "bt": bt, "order": self.process_counter
+        })
+        self.queue_tree.insert("", "end", values=(pid, at, bt))
+
+        # Auto-increment Process ID for convenience
+        self.process_counter += 1
+        self.pid_entry.delete(0, "end")
+        self.pid_entry.insert(0, f"P{self.process_counter}")
+        self.at_entry.delete(0, "end")
+        self.at_entry.insert(0, "0")
+        self.bt_entry.delete(0, "end")
+        self.bt_entry.insert(0, "1")
+
+    def remove_selected(self):
+        selected = self.queue_tree.selection()
+        if not selected:
+            return
+        for item in selected:
+            pid = str(self.queue_tree.item(item, "values")[0])
+            self.processes = [p for p in self.processes if p["pid"] != pid]
+            self.queue_tree.delete(item)
+
+    def clear_all(self):
+        self.processes.clear()
+        self.process_counter = 1
+        for tree in (self.queue_tree, self.result_tree):
+            for item in tree.get_children():
+                tree.delete(item)
+        self.gantt_canvas.delete("all")
+        self.avg_wt_label.config(text="0.00")
+        self.avg_tat_label.config(text="0.00")
+        self.pid_entry.delete(0, "end")
+        self.pid_entry.insert(0, "P1")
+
+    def load_sample_data(self):
+        self.clear_all()
+        samples = [("P1", 0, 5), ("P2", 1, 3), ("P3", 2, 8), ("P4", 3, 6)]
+        for pid, at, bt in samples:
+            self.processes.append({
+                "pid": pid, "at": at, "bt": bt, "order": self.process_counter
+            })
+            self.queue_tree.insert("", "end", values=(pid, at, bt))
+            self.process_counter += 1
+        self.pid_entry.delete(0, "end")
+        self.pid_entry.insert(0, f"P{self.process_counter}")
+
+    def run_simulation(self):
+        if not self.processes:
+            messagebox.showwarning("No Processes", "Add at least one process before running.")
+            return
+
+        algo = self.algo_var.get()
+        if algo == "FCFS":
+            results, gantt = simulate_fcfs(self.processes)
+        elif algo == "SJF (Non-Preemptive)":
+            results, gantt = simulate_sjf(self.processes)
+        else:
+            quantum = self._parse_whole_number(self.quantum_entry.get(), "Time Quantum", min_val=1)
+            if quantum is None:
+                return
+            results, gantt = simulate_rr(self.processes, quantum)
+
+        self._display_results(results)
+        self._draw_gantt_chart(gantt)
+
+    def _display_results(self, results):
+        for item in self.result_tree.get_children():
+            self.result_tree.delete(item)
+
+        total_wt = 0
+        total_tat = 0
+        for r in results:
+            total_wt += r["wt"]
+            total_tat += r["tat"]
+            self.result_tree.insert("", "end", values=(
+                r["pid"], r["at"], r["bt"], r["ct"], r["tat"], r["wt"]
+            ))
+
+        count = len(results)
+        self.avg_wt_label.config(text=f"{total_wt / count:.2f} ms")
+        self.avg_tat_label.config(text=f"{total_tat / count:.2f} ms")
+
+    def _draw_gantt_chart(self, gantt):
+        self.gantt_canvas.delete("all")
+        if not gantt:
+            return
+
+        # Assign a consistent color to each unique process
+        color_map = {}
+        color_idx = 0
+        for pid, _, _ in gantt:
+            if pid != "IDLE" and pid not in color_map:
+                color_map[pid] = self.GANTT_COLORS[color_idx % len(self.GANTT_COLORS)]
+                color_idx += 1
+
+        x_cursor = 24
+        y_top, y_bottom = 22, 72
+        unit_width = 36  # Pixels per unit of time
+
+        for pid, start, end in gantt:
+            duration = end - start
+            block_w = max(duration * unit_width, 42)
+            fill_color = "#334155" if pid == "IDLE" else color_map[pid]
+            text_color = self.FG_MUTED if pid == "IDLE" else "#0F172A"
+
+            # Draw process block
+            self.gantt_canvas.create_rectangle(
+                x_cursor, y_top, x_cursor + block_w, y_bottom,
+                fill=fill_color, outline=self.BG_MAIN, width=2
+            )
+            self.gantt_canvas.create_text(
+                x_cursor + block_w / 2, (y_top + y_bottom) / 2,
+                text=pid, fill=text_color, font=("Segoe UI", 10, "bold")
+            )
+            # Draw start time label
+            self.gantt_canvas.create_text(
+                x_cursor, y_bottom + 14,
+                text=str(start), fill=self.FG_TEXT, font=("Segoe UI", 9)
+            )
+            x_cursor += block_w
+
+        # Draw final completion time label
+        final_time = gantt[-1][2]
+        self.gantt_canvas.create_text(
+            x_cursor, y_bottom + 14,
+            text=str(final_time), fill=self.FG_TEXT, font=("Segoe UI", 9, "bold")
+        )
+
+        self.gantt_canvas.configure(scrollregion=(0, 0, x_cursor + 30, 110))
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = SchedulerApp(root)
+    root.mainloop()
