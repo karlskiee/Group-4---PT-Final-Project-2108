@@ -17,6 +17,7 @@ An interactive desktop GUI built with Python and Tkinter to visualize and compar
 ## Requirements
 
 - **Visual Studio Code**
+   - *Or Any Compiler that can run Tkinter*
 - **Python 3.7+**
 - **Tkinter** (bundled with standard Python on Windows & macOS)
 
