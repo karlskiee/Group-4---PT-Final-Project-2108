@@ -18,7 +18,6 @@ An interactive desktop GUI built with Python and Tkinter to visualize and compar
 
 - **Python 3.7+**
 - **Tkinter** (bundled with standard Python on Windows & macOS)
-- *Zero external `pip` dependencies required.*
 
 > **Linux Users:** If Tkinter is not pre-installed, install it with:
 > ```bash
@@ -27,9 +26,6 @@ An interactive desktop GUI built with Python and Tkinter to visualize and compar
 
 ---
 
-## Getting Started
+# How to Run it
 
-1. **Clone the repository**
-   ```bash
-   git clone [https://github.com/your-username/os-page-replacement-simulator.git](https://github.com/your-username/os-page-replacement-simulator.git)
-   cd os-page-replacement-simulator
+
