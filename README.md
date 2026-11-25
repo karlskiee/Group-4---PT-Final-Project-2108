@@ -28,6 +28,7 @@ An interactive desktop GUI built with Python and Tkinter to visualize and compar
 
 # How to Run it
 
-<img width="500" height="317" alt="Canva deez nuts" src="https://github.com/user-attachments/assets/adc93f83-aba8-438c-9405-39701d83ca42" />
+<img width="785" height="402" alt="image" src="https://github.com/user-attachments/assets/fc64bee6-25ea-4a26-84ec-0d2b58b3c154" />
+
 
 
