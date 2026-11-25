@@ -28,5 +28,5 @@ An interactive desktop GUI built with Python and Tkinter to visualize and compar
 
 # How to Run it
 
-<img width="500" height="500" alt="image" src="https://github.com/user-attachments/assets/cf74314a-d2c4-4b78-955b-2dc245e4e23d" />
+<img width="417" height="234" alt="image" src="https://github.com/user-attachments/assets/cf74314a-d2c4-4b78-955b-2dc245e4e23d" />
 
