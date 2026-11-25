@@ -30,5 +30,5 @@ An interactive desktop GUI built with Python and Tkinter to visualize and compar
 
 <img width="785" height="402" alt="image" src="https://github.com/user-attachments/assets/fc64bee6-25ea-4a26-84ec-0d2b58b3c154" />
 
-
+### Locate the ZIP file and extract it.
 
