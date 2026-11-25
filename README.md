@@ -34,4 +34,6 @@ An interactive desktop GUI built with Python and Tkinter to visualize and compar
 
 ### 3. Locate the ZIP file and *extract* it.
 ### 4. *Launch* **Visual Studio Code** or any compiler that can *run* Tkinter.
-
+###5. **Open** the extracted folder inside your editor/IDE.
+### 6. **Open** `Project_4_w-Guide.py` (or `project_four.py`).
+### 7. **Run** the Python file (click the **Run ▶** button in VS Code, or run `python Project_4_w-Guide.py` in the terminal).
