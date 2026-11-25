@@ -1,167 +1,144 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from collections import deque
 
 
 # ==============================================================================
-# 1. SCHEDULING ALGORITHMS (Pure Logic - Separated from UI for Easy Explanation)
+# 1. PAGE REPLACEMENT ALGORITHMS (Pure Logic - Easy to Explain)
 # ==============================================================================
 
-def simulate_fcfs(processes):
-    """First-Come, First-Served (Non-preemptive)."""
-    # Sort by Arrival Time, then by original order
-    ordered = sorted(processes, key=lambda p: (p["at"], p["order"]))
-    current_time = 0
-    gantt = []
-    results = []
+def simulate_fifo(pages, num_frames):
+    """First-In, First-Out (FIFO): Replaces the oldest page in memory."""
+    frames = []
+    replace_index = 0
+    steps = []
 
-    for p in ordered:
-        if current_time < p["at"]:
-            gantt.append(("IDLE", current_time, p["at"]))
-            current_time = p["at"]
-
-        start = current_time
-        end = start + p["bt"]
-        gantt.append((p["pid"], start, end))
-
-        ct = end
-        tat = ct - p["at"]
-        wt = tat - p["bt"]
-        results.append({
-            "pid": p["pid"], "at": p["at"], "bt": p["bt"],
-            "ct": ct, "tat": tat, "wt": wt
-        })
-        current_time = end
-
-    return results, gantt
-
-
-def simulate_sjf(processes):
-    """Shortest Job First (Non-preemptive)."""
-    remaining = [p.copy() for p in processes]
-    current_time = 0
-    gantt = []
-    results = []
-
-    while remaining:
-        # Filter processes that have already arrived
-        available = [p for p in remaining if p["at"] <= current_time]
-
-        if not available:
-            # Jump to the next arriving process if CPU is idle
-            next_arrival = min(p["at"] for p in remaining)
-            gantt.append(("IDLE", current_time, next_arrival))
-            current_time = next_arrival
-            continue
-
-        # Pick the shortest burst time (tie-breaker: arrival time, then order)
-        chosen = min(available, key=lambda p: (p["bt"], p["at"], p["order"]))
-        remaining.remove(chosen)
-
-        start = current_time
-        end = start + chosen["bt"]
-        gantt.append((chosen["pid"], start, end))
-
-        ct = end
-        tat = ct - chosen["at"]
-        wt = tat - chosen["bt"]
-        results.append({
-            "pid": chosen["pid"], "at": chosen["at"], "bt": chosen["bt"],
-            "ct": ct, "tat": tat, "wt": wt
-        })
-        current_time = end
-
-    return results, gantt
-
-
-def simulate_rr(processes, quantum):
-    """Round Robin (Preemptive with Time Quantum)."""
-    ordered = sorted(processes, key=lambda p: (p["at"], p["order"]))
-    remaining_bt = {p["pid"]: p["bt"] for p in ordered}
-    ready_queue = deque()
-    gantt = []
-    results = []
-
-    current_time = 0
-    idx = 0
-    total = len(ordered)
-
-    while idx < total or ready_queue:
-        # If no process is ready, advance time to the next arrival
-        if not ready_queue:
-            if current_time < ordered[idx]["at"]:
-                gantt.append(("IDLE", current_time, ordered[idx]["at"]))
-                current_time = ordered[idx]["at"]
-            while idx < total and ordered[idx]["at"] <= current_time:
-                ready_queue.append(ordered[idx])
-                idx += 1
-
-        current_proc = ready_queue.popleft()
-        pid = current_proc["pid"]
-
-        run_time = min(quantum, remaining_bt[pid])
-        start = current_time
-        end = start + run_time
-        gantt.append((pid, start, end))
-
-        current_time = end
-        remaining_bt[pid] -= run_time
-
-        # Add newly arrived processes BEFORE re-queueing the current process
-        while idx < total and ordered[idx]["at"] <= current_time:
-            ready_queue.append(ordered[idx])
-            idx += 1
-
-        if remaining_bt[pid] > 0:
-            ready_queue.append(current_proc)
+    for i, page in enumerate(pages):
+        replaced = "-"
+        if page in frames:
+            status = "HIT"
         else:
-            ct = current_time
-            tat = ct - current_proc["at"]
-            wt = tat - current_proc["bt"]
-            results.append({
-                "pid": pid, "at": current_proc["at"], "bt": current_proc["bt"],
-                "ct": ct, "tat": tat, "wt": wt
-            })
+            status = "FAULT"
+            if len(frames) < num_frames:
+                frames.append(page)
+            else:
+                replaced = str(frames[replace_index])
+                frames[replace_index] = page
+                replace_index = (replace_index + 1) % num_frames
 
-    # Sort results by PID order for clean table display
-    results.sort(key=lambda r: next(p["order"] for p in processes if p["pid"] == r["pid"]))
-    return results, gantt
+        steps.append({
+            "step": i + 1,
+            "page": page,
+            "frames": frames.copy(),
+            "status": status,
+            "replaced": replaced
+        })
+
+    return steps
+
+
+def simulate_lru(pages, num_frames):
+    """Least Recently Used (LRU): Replaces the page unused for the longest time."""
+    frames = []
+    last_used = {}  # Tracks the most recent step index each page was accessed
+    steps = []
+
+    for i, page in enumerate(pages):
+        replaced = "-"
+        if page in frames:
+            status = "HIT"
+        else:
+            status = "FAULT"
+            if len(frames) < num_frames:
+                frames.append(page)
+            else:
+                # Find the page in frames with the smallest last_used index
+                lru_page = min(frames, key=lambda p: last_used[p])
+                victim_idx = frames.index(lru_page)
+                replaced = str(lru_page)
+                frames[victim_idx] = page
+
+        last_used[page] = i
+        steps.append({
+            "step": i + 1,
+            "page": page,
+            "frames": frames.copy(),
+            "status": status,
+            "replaced": replaced
+        })
+
+    return steps
+
+
+def simulate_optimal(pages, num_frames):
+    """Optimal (OPT): Replaces the page that will not be used for the longest time."""
+    frames = []
+    steps = []
+
+    for i, page in enumerate(pages):
+        replaced = "-"
+        if page in frames:
+            status = "HIT"
+        else:
+            status = "FAULT"
+            if len(frames) < num_frames:
+                frames.append(page)
+            else:
+                # Look ahead in the remaining reference string
+                future = pages[i + 1:]
+                farthest_use = -1
+                victim_idx = 0
+
+                for idx, f_page in enumerate(frames):
+                    if f_page not in future:
+                        # Never used again -> best page to replace immediately
+                        victim_idx = idx
+                        break
+                    next_use = future.index(f_page)
+                    if next_use > farthest_use:
+                        farthest_use = next_use
+                        victim_idx = idx
+
+                replaced = str(frames[victim_idx])
+                frames[victim_idx] = page
+
+        steps.append({
+            "step": i + 1,
+            "page": page,
+            "frames": frames.copy(),
+            "status": status,
+            "replaced": replaced
+        })
+
+    return steps
 
 
 # ==============================================================================
 # 2. GRAPHICAL USER INTERFACE (Tkinter Dark Dashboard)
 # ==============================================================================
 
-class SchedulerApp:
+class PageReplacementApp:
     # Color Palette
-    BG_MAIN = "#0F172A"      # Dark Slate
-    BG_CARD = "#1E293B"      # Card Surface
-    BG_INPUT = "#334155"     # Input Fields
-    FG_TEXT = "#F8FAFC"      # Primary Text
-    FG_MUTED = "#94A3B8"     # Secondary Text
-    ACCENT = "#38BDF8"       # Sky Blue
-    SUCCESS = "#22C55E"      # Green
-    DANGER = "#EF4444"       # Red
-
-    GANTT_COLORS = [
-        "#38BDF8", "#818CF8", "#34D399", "#FBBF24",
-        "#F472B6", "#A78BFA", "#FB923C", "#2DD4BF"
-    ]
+    BG_MAIN = "#0F172A"
+    BG_CARD = "#1E293B"
+    BG_INPUT = "#334155"
+    FG_TEXT = "#F8FAFC"
+    FG_MUTED = "#94A3B8"
+    ACCENT = "#38BDF8"
+    HIT_COLOR = "#22C55E"
+    FAULT_COLOR = "#EF4444"
 
     def __init__(self, root):
         self.root = root
-        self.root.title("OS Process Scheduling Lab")
-        self.root.geometry("1120x720")
-        self.root.minsize(980, 650)
+        self.root.title("OS Page Replacement Simulator")
+        self.root.geometry("1120x740")
+        self.root.minsize(960, 650)
         self.root.configure(bg=self.BG_MAIN)
-
-        self.processes = []
-        self.process_counter = 1
 
         self._configure_styles()
         self._build_header()
-        self._build_main_workspace()
-        self._build_gantt_section()
+        self._build_input_and_metrics()
+        self._build_visual_grid()
+        self._build_step_table()
 
     def _configure_styles(self):
         style = ttk.Style()
@@ -172,7 +149,7 @@ class SchedulerApp:
             background=self.BG_CARD,
             foreground=self.FG_TEXT,
             fieldbackground=self.BG_CARD,
-            rowheight=28,
+            rowheight=26,
             borderwidth=0,
             font=("Segoe UI", 10)
         )
@@ -185,387 +162,344 @@ class SchedulerApp:
         )
         style.map("Treeview", background=[("selected", "#0284C7")])
 
-    # --- Top Navigation / Control Bar ---
+    # --- Top Header Bar ---
     def _build_header(self):
         header = tk.Frame(self.root, bg=self.BG_CARD, padx=20, pady=14)
         header.pack(fill="x", padx=16, pady=(16, 10))
 
-        title_frame = tk.Frame(header, bg=self.BG_CARD)
-        title_frame.pack(side="left")
+        title_box = tk.Frame(header, bg=self.BG_CARD)
+        title_box.pack(side="left")
         tk.Label(
-            title_frame, text="OS Process Scheduling Lab",
+            title_box, text="OS Page Replacement Simulator",
             font=("Segoe UI", 16, "bold"), bg=self.BG_CARD, fg=self.ACCENT
         ).pack(anchor="w")
         tk.Label(
-            title_frame, text="Simulate FCFS, Non-Preemptive SJF, and Round Robin",
+            title_box, text="Compare FIFO, Least Recently Used (LRU), and Optimal Page Replacement",
             font=("Segoe UI", 9), bg=self.BG_CARD, fg=self.FG_MUTED
         ).pack(anchor="w")
 
         controls = tk.Frame(header, bg=self.BG_CARD)
         controls.pack(side="right")
 
-        tk.Label(
-            controls, text="Algorithm:", font=("Segoe UI", 10, "bold"),
-            bg=self.BG_CARD, fg=self.FG_TEXT
-        ).pack(side="left", padx=(0, 6))
-
-        self.algo_var = tk.StringVar(value="FCFS")
-        self.algo_menu = ttk.Combobox(
-            controls, textvariable=self.algo_var, state="readonly", width=18,
-            values=["FCFS", "SJF (Non-Preemptive)", "Round Robin"]
-        )
-        self.algo_menu.pack(side="left", padx=(0, 14))
-        self.algo_menu.bind("<<ComboboxSelected>>", self._toggle_quantum)
-
-        tk.Label(
-            controls, text="Quantum:", font=("Segoe UI", 10, "bold"),
-            bg=self.BG_CARD, fg=self.FG_TEXT
-        ).pack(side="left", padx=(0, 6))
-
-        self.quantum_entry = tk.Entry(
-            controls, width=6, font=("Segoe UI", 10),
-            bg=self.BG_INPUT, fg=self.FG_TEXT, insertbackground=self.FG_TEXT,
-            relief="flat", disabledbackground="#1E293B", disabledforeground="#475569"
-        )
-        self.quantum_entry.insert(0, "2")
-        self.quantum_entry.config(state="disabled")
-        self.quantum_entry.pack(side="left", padx=(0, 16), ipady=4)
-
         tk.Button(
-            controls, text="Load Sample", command=self.load_sample_data,
+            controls, text="Load Sample", command=self.load_sample,
             bg=self.BG_INPUT, fg=self.FG_TEXT, font=("Segoe UI", 9, "bold"),
             relief="flat", padx=12, pady=6, cursor="hand2"
         ).pack(side="left", padx=(0, 8))
 
         tk.Button(
-            controls, text="Run Simulation", command=self.run_simulation,
-            bg=self.SUCCESS, fg="#052E16", font=("Segoe UI", 10, "bold"),
-            relief="flat", padx=16, pady=6, cursor="hand2"
-        ).pack(side="left")
-
-    # --- Middle Split Workspace ---
-    def _build_main_workspace(self):
-        workspace = tk.Frame(self.root, bg=self.BG_MAIN)
-        workspace.pack(fill="both", expand=True, padx=16, pady=6)
-        workspace.columnconfigure(0, weight=4)
-        workspace.columnconfigure(1, weight=6)
-        workspace.rowconfigure(0, weight=1)
-
-        # LEFT CARD: Process Input & Queue
-        left_card = tk.Frame(workspace, bg=self.BG_CARD, padx=16, pady=14)
-        left_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-
-        tk.Label(
-            left_card, text="1. Process Queue", font=("Segoe UI", 12, "bold"),
-            bg=self.BG_CARD, fg=self.FG_TEXT
-        ).pack(anchor="w", pady=(0, 10))
-
-        form = tk.Frame(left_card, bg=self.BG_CARD)
-        form.pack(fill="x", pady=(0, 10))
-
-        # Input fields
-        self.pid_entry = self._create_labeled_input(form, "Process ID", 0, "P1")
-        self.at_entry = self._create_labeled_input(form, "Arrival (≥ 0)", 1, "0")
-        self.bt_entry = self._create_labeled_input(form, "Burst (≥ 1)", 2, "4")
-
-        btn_row = tk.Frame(left_card, bg=self.BG_CARD)
-        btn_row.pack(fill="x", pady=(0, 12))
-
-        tk.Button(
-            btn_row, text="+ Add Process", command=self.add_process,
-            bg=self.ACCENT, fg="#082F49", font=("Segoe UI", 9, "bold"),
+            controls, text="Clear", command=self.clear_all,
+            bg=self.FAULT_COLOR, fg=self.FG_TEXT, font=("Segoe UI", 9, "bold"),
             relief="flat", padx=12, pady=6, cursor="hand2"
         ).pack(side="left", padx=(0, 8))
 
         tk.Button(
-            btn_row, text="Remove Selected", command=self.remove_selected,
-            bg=self.BG_INPUT, fg=self.FG_TEXT, font=("Segoe UI", 9),
-            relief="flat", padx=10, pady=6, cursor="hand2"
-        ).pack(side="left", padx=(0, 8))
+            controls, text="Run Simulation", command=self.run_simulation,
+            bg=self.HIT_COLOR, fg="#052E16", font=("Segoe UI", 10, "bold"),
+            relief="flat", padx=16, pady=6, cursor="hand2"
+        ).pack(side="left")
 
-        tk.Button(
-            btn_row, text="Clear All", command=self.clear_all,
-            bg=self.DANGER, fg=self.FG_TEXT, font=("Segoe UI", 9, "bold"),
-            relief="flat", padx=10, pady=6, cursor="hand2"
-        ).pack(side="right")
+    # --- Input Configuration & Metric Cards ---
+    def _build_input_and_metrics(self):
+        top_section = tk.Frame(self.root, bg=self.BG_MAIN)
+        top_section.pack(fill="x", padx=16, pady=6)
 
-        # Input Queue Table
-        self.queue_tree = ttk.Treeview(
-            left_card, columns=("pid", "at", "bt"), show="headings", height=8
-        )
-        for col, text in [("pid", "Process ID"), ("at", "Arrival Time"), ("bt", "Burst Time")]:
-            self.queue_tree.heading(col, text=text)
-            self.queue_tree.column(col, anchor="center", width=100)
-        self.queue_tree.pack(fill="both", expand=True)
+        # Input Card
+        input_card = tk.Frame(top_section, bg=self.BG_CARD, padx=16, pady=14)
+        input_card.pack(fill="x", pady=(0, 10))
 
-        # RIGHT CARD: Simulation Results & Metrics
-        right_card = tk.Frame(workspace, bg=self.BG_CARD, padx=16, pady=14)
-        right_card.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
-
+        # Reference String Input
+        ref_box = tk.Frame(input_card, bg=self.BG_CARD)
+        ref_box.pack(side="left", fill="x", expand=True, padx=(0, 14))
         tk.Label(
-            right_card, text="2. Simulation Metrics & Results",
-            font=("Segoe UI", 12, "bold"), bg=self.BG_CARD, fg=self.FG_TEXT
-        ).pack(anchor="w", pady=(0, 10))
-
-        # Metric Summary Cards
-        metrics_row = tk.Frame(right_card, bg=self.BG_CARD)
-        metrics_row.pack(fill="x", pady=(0, 12))
-
-        self.avg_wt_label = self._create_metric_box(metrics_row, "Average Waiting Time", "0.00")
-        self.avg_tat_label = self._create_metric_box(metrics_row, "Average Turnaround Time", "0.00")
-
-        # Results Table
-        cols = ("pid", "at", "bt", "ct", "tat", "wt")
-        headers = {
-            "pid": "PID", "at": "Arrival", "bt": "Burst",
-            "ct": "Completion", "tat": "Turnaround", "wt": "Waiting"
-        }
-        self.result_tree = ttk.Treeview(right_card, columns=cols, show="headings", height=8)
-        for col in cols:
-            self.result_tree.heading(col, text=headers[col])
-            self.result_tree.column(col, anchor="center", width=85)
-        self.result_tree.pack(fill="both", expand=True)
-
-    # --- Bottom Section: Gantt Chart ---
-    def _build_gantt_section(self):
-        gantt_card = tk.Frame(self.root, bg=self.BG_CARD, padx=16, pady=12)
-        gantt_card.pack(fill="x", padx=16, pady=(6, 16))
-
-        tk.Label(
-            gantt_card, text="3. Gantt Chart Timeline",
-            font=("Segoe UI", 12, "bold"), bg=self.BG_CARD, fg=self.FG_TEXT
-        ).pack(anchor="w", pady=(0, 8))
-
-        canvas_frame = tk.Frame(gantt_card, bg=self.BG_CARD)
-        canvas_frame.pack(fill="x")
-
-        self.gantt_canvas = tk.Canvas(
-            canvas_frame, height=110, bg=self.BG_MAIN, highlightthickness=0
-        )
-        h_scroll = ttk.Scrollbar(canvas_frame, orient="horizontal", command=self.gantt_canvas.xview)
-        self.gantt_canvas.configure(xscrollcommand=h_scroll.set)
-
-        self.gantt_canvas.pack(fill="x")
-        h_scroll.pack(fill="x")
-
-    # --- Helper UI Builders ---
-    def _create_labeled_input(self, parent, label_text, col, default_val):
-        box = tk.Frame(parent, bg=self.BG_CARD)
-        box.grid(row=0, column=col, sticky="ew", padx=(0, 8))
-        parent.columnconfigure(col, weight=1)
-
-        tk.Label(
-            box, text=label_text, font=("Segoe UI", 9),
-            bg=self.BG_CARD, fg=self.FG_MUTED
+            ref_box, text="Page Reference String (space or comma separated whole numbers, e.g. 7 0 1 2 0 3)",
+            font=("Segoe UI", 9), bg=self.BG_CARD, fg=self.FG_MUTED
         ).pack(anchor="w")
-
-        entry = tk.Entry(
-            box, font=("Segoe UI", 10), bg=self.BG_INPUT, fg=self.FG_TEXT,
+        self.ref_entry = tk.Entry(
+            ref_box, font=("Segoe UI", 11), bg=self.BG_INPUT, fg=self.FG_TEXT,
             insertbackground=self.FG_TEXT, relief="flat"
         )
-        entry.insert(0, default_val)
-        entry.pack(fill="x", ipady=5, pady=(2, 0))
-        return entry
+        self.ref_entry.pack(fill="x", ipady=5, pady=(3, 0))
 
-    def _create_metric_box(self, parent, title, initial_value):
-        box = tk.Frame(parent, bg=self.BG_INPUT, padx=14, pady=10)
-        box.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        # Frames Input
+        frame_box = tk.Frame(input_card, bg=self.BG_CARD)
+        frame_box.pack(side="left", padx=(0, 14))
+        tk.Label(
+            frame_box, text="Frames (1 - 10)",
+            font=("Segoe UI", 9), bg=self.BG_CARD, fg=self.FG_MUTED
+        ).pack(anchor="w")
+        self.frames_entry = tk.Entry(
+            frame_box, width=10, font=("Segoe UI", 11), bg=self.BG_INPUT,
+            fg=self.FG_TEXT, insertbackground=self.FG_TEXT, relief="flat"
+        )
+        self.frames_entry.insert(0, "3")
+        self.frames_entry.pack(ipady=5, pady=(3, 0))
+
+        # Algorithm Dropdown
+        algo_box = tk.Frame(input_card, bg=self.BG_CARD)
+        algo_box.pack(side="left")
+        tk.Label(
+            algo_box, text="Algorithm",
+            font=("Segoe UI", 9), bg=self.BG_CARD, fg=self.FG_MUTED
+        ).pack(anchor="w")
+        self.algo_var = tk.StringVar(value="FIFO")
+        self.algo_menu = ttk.Combobox(
+            algo_box, textvariable=self.algo_var, state="readonly", width=16,
+            font=("Segoe UI", 10), values=["FIFO", "LRU", "Optimal"]
+        )
+        self.algo_menu.pack(ipady=3, pady=(3, 0))
+
+        # Summary Metric Cards
+        metrics_row = tk.Frame(top_section, bg=self.BG_MAIN)
+        metrics_row.pack(fill="x")
+
+        self.lbl_total = self._create_metric_card(metrics_row, "Total References", "0", self.ACCENT)
+        self.lbl_faults = self._create_metric_card(metrics_row, "Page Faults", "0", self.FAULT_COLOR)
+        self.lbl_hits = self._create_metric_card(metrics_row, "Page Hits", "0", self.HIT_COLOR)
+        self.lbl_hit_ratio = self._create_metric_card(metrics_row, "Hit Ratio", "0.00%", self.HIT_COLOR)
+        self.lbl_fault_ratio = self._create_metric_card(metrics_row, "Fault Ratio", "0.00%", self.FAULT_COLOR)
+
+    def _create_metric_card(self, parent, title, initial, color):
+        card = tk.Frame(parent, bg=self.BG_CARD, padx=14, pady=10)
+        card.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
         tk.Label(
-            box, text=title, font=("Segoe UI", 9),
-            bg=self.BG_INPUT, fg=self.FG_MUTED
+            card, text=title, font=("Segoe UI", 9),
+            bg=self.BG_CARD, fg=self.FG_MUTED
         ).pack(anchor="w")
-
-        val_label = tk.Label(
-            box, text=initial_value, font=("Segoe UI", 16, "bold"),
-            bg=self.BG_INPUT, fg=self.ACCENT
+        val = tk.Label(
+            card, text=initial, font=("Segoe UI", 15, "bold"),
+            bg=self.BG_CARD, fg=color
         )
-        val_label.pack(anchor="w")
-        return val_label
+        val.pack(anchor="w")
+        return val
+
+    # --- Visual Frame Memory Grid (Canvas) ---
+    def _build_visual_grid(self):
+        grid_card = tk.Frame(self.root, bg=self.BG_CARD, padx=16, pady=12)
+        grid_card.pack(fill="x", padx=16, pady=6)
+
+        tk.Label(
+            grid_card, text="Memory Frame Visualization",
+            font=("Segoe UI", 11, "bold"), bg=self.BG_CARD, fg=self.FG_TEXT
+        ).pack(anchor="w", pady=(0, 6))
+
+        canvas_wrap = tk.Frame(grid_card, bg=self.BG_CARD)
+        canvas_wrap.pack(fill="x")
+
+        self.grid_canvas = tk.Canvas(
+            canvas_wrap, height=180, bg=self.BG_MAIN, highlightthickness=0
+        )
+        h_scroll = ttk.Scrollbar(canvas_wrap, orient="horizontal", command=self.grid_canvas.xview)
+        v_scroll = ttk.Scrollbar(canvas_wrap, orient="vertical", command=self.grid_canvas.yview)
+        self.grid_canvas.configure(xscrollcommand=h_scroll.set, yscrollcommand=v_scroll.set)
+
+        self.grid_canvas.grid(row=0, column=0, sticky="nsew")
+        v_scroll.grid(row=0, column=1, sticky="ns")
+        h_scroll.grid(row=1, column=0, sticky="ew")
+        canvas_wrap.columnconfigure(0, weight=1)
+
+    # --- Step-by-Step Execution Log Table ---
+    def _build_step_table(self):
+        table_card = tk.Frame(self.root, bg=self.BG_CARD, padx=16, pady=12)
+        table_card.pack(fill="both", expand=True, padx=16, pady=(6, 16))
+
+        tk.Label(
+            table_card, text="Step-by-Step Execution Log",
+            font=("Segoe UI", 11, "bold"), bg=self.BG_CARD, fg=self.FG_TEXT
+        ).pack(anchor="w", pady=(0, 6))
+
+        cols = ("step", "page", "frames", "status", "replaced")
+        headers = {
+            "step": "Step", "page": "Page Requested", "frames": "Frames in Memory",
+            "status": "Status", "replaced": "Replaced Page"
+        }
+
+        self.tree = ttk.Treeview(table_card, columns=cols, show="headings", height=7)
+        for col in cols:
+            self.tree.heading(col, text=headers[col])
+            width = 240 if col == "frames" else 110
+            self.tree.column(col, anchor="center", width=width)
+
+        scrollbar = ttk.Scrollbar(table_card, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
     # ==========================================================================
-    # 3. INPUT VALIDATION & ACTIONS (Blocks Negatives, Decimals, Letters)
+    # 3. STRICT INPUT VALIDATION & SIMULATION ACTIONS
     # ==========================================================================
 
-    def _parse_whole_number(self, raw_value, field_name, min_val=0):
+    def _validate_inputs(self):
         """
-        Strictly validates that input is a non-negative whole number.
-        Rejects empty strings, negative signs, decimals, and letters.
+        Strictly validates reference string and frame count.
+        Rejects empty values, negative numbers, decimals, and letters.
         """
-        cleaned = raw_value.strip()
-        if not cleaned.isdigit():
+        raw_ref = self.ref_entry.get().strip()
+        if not raw_ref:
+            messagebox.showerror("Invalid Input", "Please enter a page reference string.")
+            return None, None
+
+        # Allow space or comma separation
+        tokens = raw_ref.replace(",", " ").split()
+        pages = []
+        for token in tokens:
+            if not token.isdigit():
+                messagebox.showerror(
+                    "Invalid Input",
+                    f"'{token}' is not valid. Reference string must contain only whole numbers (0 or greater, no negatives or decimals)."
+                )
+                return None, None
+            pages.append(int(token))
+
+        raw_frames = self.frames_entry.get().strip()
+        if not raw_frames.isdigit():
             messagebox.showerror(
                 "Invalid Input",
-                f"{field_name} must be a whole number (no negatives, decimals, or letters)."
+                "Number of frames must be a whole number (no negatives, decimals, or letters)."
             )
-            return None
+            return None, None
 
-        number = int(cleaned)
-        if number < min_val:
-            messagebox.showerror(
-                "Invalid Input",
-                f"{field_name} must be at least {min_val}."
-            )
-            return None
+        num_frames = int(raw_frames)
+        if num_frames < 1 or num_frames > 10:
+            messagebox.showerror("Invalid Input", "Number of frames must be between 1 and 10.")
+            return None, None
 
-        return number
+        return pages, num_frames
 
-    def _toggle_quantum(self, event=None):
-        if self.algo_var.get() == "Round Robin":
-            self.quantum_entry.config(state="normal")
-        else:
-            self.quantum_entry.config(state="disabled")
-
-    def add_process(self):
-        pid = self.pid_entry.get().strip()
-        if not pid:
-            messagebox.showerror("Invalid Input", "Process ID cannot be empty.")
-            return
-
-        if any(p["pid"].lower() == pid.lower() for p in self.processes):
-            messagebox.showerror("Duplicate Process", f"Process '{pid}' already exists.")
-            return
-
-        at = self._parse_whole_number(self.at_entry.get(), "Arrival Time", min_val=0)
-        if at is None:
-            return
-
-        bt = self._parse_whole_number(self.bt_entry.get(), "Burst Time", min_val=1)
-        if bt is None:
-            return
-
-        self.processes.append({
-            "pid": pid, "at": at, "bt": bt, "order": self.process_counter
-        })
-        self.queue_tree.insert("", "end", values=(pid, at, bt))
-
-        # Auto-increment Process ID for convenience
-        self.process_counter += 1
-        self.pid_entry.delete(0, "end")
-        self.pid_entry.insert(0, f"P{self.process_counter}")
-        self.at_entry.delete(0, "end")
-        self.at_entry.insert(0, "0")
-        self.bt_entry.delete(0, "end")
-        self.bt_entry.insert(0, "1")
-
-    def remove_selected(self):
-        selected = self.queue_tree.selection()
-        if not selected:
-            return
-        for item in selected:
-            pid = str(self.queue_tree.item(item, "values")[0])
-            self.processes = [p for p in self.processes if p["pid"] != pid]
-            self.queue_tree.delete(item)
+    def load_sample(self):
+        self.ref_entry.delete(0, "end")
+        self.ref_entry.insert(0, "7 0 1 2 0 3 0 4 2 3 0 3 2")
+        self.frames_entry.delete(0, "end")
+        self.frames_entry.insert(0, "3")
 
     def clear_all(self):
-        self.processes.clear()
-        self.process_counter = 1
-        for tree in (self.queue_tree, self.result_tree):
-            for item in tree.get_children():
-                tree.delete(item)
-        self.gantt_canvas.delete("all")
-        self.avg_wt_label.config(text="0.00")
-        self.avg_tat_label.config(text="0.00")
-        self.pid_entry.delete(0, "end")
-        self.pid_entry.insert(0, "P1")
-
-    def load_sample_data(self):
-        self.clear_all()
-        samples = [("P1", 0, 5), ("P2", 1, 3), ("P3", 2, 8), ("P4", 3, 6)]
-        for pid, at, bt in samples:
-            self.processes.append({
-                "pid": pid, "at": at, "bt": bt, "order": self.process_counter
-            })
-            self.queue_tree.insert("", "end", values=(pid, at, bt))
-            self.process_counter += 1
-        self.pid_entry.delete(0, "end")
-        self.pid_entry.insert(0, f"P{self.process_counter}")
+        self.ref_entry.delete(0, "end")
+        self.frames_entry.delete(0, "end")
+        self.frames_entry.insert(0, "3")
+        self.grid_canvas.delete("all")
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self.lbl_total.config(text="0")
+        self.lbl_faults.config(text="0")
+        self.lbl_hits.config(text="0")
+        self.lbl_hit_ratio.config(text="0.00%")
+        self.lbl_fault_ratio.config(text="0.00%")
 
     def run_simulation(self):
-        if not self.processes:
-            messagebox.showwarning("No Processes", "Add at least one process before running.")
+        pages, num_frames = self._validate_inputs()
+        if pages is None:
             return
 
         algo = self.algo_var.get()
-        if algo == "FCFS":
-            results, gantt = simulate_fcfs(self.processes)
-        elif algo == "SJF (Non-Preemptive)":
-            results, gantt = simulate_sjf(self.processes)
+        if algo == "FIFO":
+            steps = simulate_fifo(pages, num_frames)
+        elif algo == "LRU":
+            steps = simulate_lru(pages, num_frames)
         else:
-            quantum = self._parse_whole_number(self.quantum_entry.get(), "Time Quantum", min_val=1)
-            if quantum is None:
-                return
-            results, gantt = simulate_rr(self.processes, quantum)
+            steps = simulate_optimal(pages, num_frames)
 
-        self._display_results(results)
-        self._draw_gantt_chart(gantt)
+        self._update_metrics(steps)
+        self._draw_visual_grid(steps, num_frames)
+        self._populate_table(steps, num_frames)
 
-    def _display_results(self, results):
-        for item in self.result_tree.get_children():
-            self.result_tree.delete(item)
+    def _update_metrics(self, steps):
+        total = len(steps)
+        faults = sum(1 for s in steps if s["status"] == "FAULT")
+        hits = total - faults
+        hit_ratio = (hits / total) * 100
+        fault_ratio = (faults / total) * 100
 
-        total_wt = 0
-        total_tat = 0
-        for r in results:
-            total_wt += r["wt"]
-            total_tat += r["tat"]
-            self.result_tree.insert("", "end", values=(
-                r["pid"], r["at"], r["bt"], r["ct"], r["tat"], r["wt"]
-            ))
+        self.lbl_total.config(text=str(total))
+        self.lbl_faults.config(text=str(faults))
+        self.lbl_hits.config(text=str(hits))
+        self.lbl_hit_ratio.config(text=f"{hit_ratio:.2f}%")
+        self.lbl_fault_ratio.config(text=f"{fault_ratio:.2f}%")
 
-        count = len(results)
-        self.avg_wt_label.config(text=f"{total_wt / count:.2f} ms")
-        self.avg_tat_label.config(text=f"{total_tat / count:.2f} ms")
+    def _draw_visual_grid(self, steps, num_frames):
+        self.grid_canvas.delete("all")
+        cell_w = 56
+        cell_h = 30
+        left_margin = 95
+        top_margin = 14
 
-    def _draw_gantt_chart(self, gantt):
-        self.gantt_canvas.delete("all")
-        if not gantt:
-            return
-
-        # Assign a consistent color to each unique process
-        color_map = {}
-        color_idx = 0
-        for pid, _, _ in gantt:
-            if pid != "IDLE" and pid not in color_map:
-                color_map[pid] = self.GANTT_COLORS[color_idx % len(self.GANTT_COLORS)]
-                color_idx += 1
-
-        x_cursor = 24
-        y_top, y_bottom = 22, 72
-        unit_width = 36  # Pixels per unit of time
-
-        for pid, start, end in gantt:
-            duration = end - start
-            block_w = max(duration * unit_width, 42)
-            fill_color = "#334155" if pid == "IDLE" else color_map[pid]
-            text_color = self.FG_MUTED if pid == "IDLE" else "#0F172A"
-
-            # Draw process block
-            self.gantt_canvas.create_rectangle(
-                x_cursor, y_top, x_cursor + block_w, y_bottom,
-                fill=fill_color, outline=self.BG_MAIN, width=2
+        # Row Labels
+        self.grid_canvas.create_text(
+            left_margin - 12, top_margin + cell_h / 2,
+            text="Page", anchor="e", fill=self.ACCENT, font=("Segoe UI", 9, "bold")
+        )
+        for f in range(num_frames):
+            y = top_margin + (f + 1) * cell_h + cell_h / 2
+            self.grid_canvas.create_text(
+                left_margin - 12, y,
+                text=f"Frame {f + 1}", anchor="e", fill=self.FG_MUTED, font=("Segoe UI", 9)
             )
-            self.gantt_canvas.create_text(
-                x_cursor + block_w / 2, (y_top + y_bottom) / 2,
-                text=pid, fill=text_color, font=("Segoe UI", 10, "bold")
-            )
-            # Draw start time label
-            self.gantt_canvas.create_text(
-                x_cursor, y_bottom + 14,
-                text=str(start), fill=self.FG_TEXT, font=("Segoe UI", 9)
-            )
-            x_cursor += block_w
-
-        # Draw final completion time label
-        final_time = gantt[-1][2]
-        self.gantt_canvas.create_text(
-            x_cursor, y_bottom + 14,
-            text=str(final_time), fill=self.FG_TEXT, font=("Segoe UI", 9, "bold")
+        status_y = top_margin + (num_frames + 1) * cell_h + cell_h / 2
+        self.grid_canvas.create_text(
+            left_margin - 12, status_y,
+            text="Result", anchor="e", fill=self.FG_MUTED, font=("Segoe UI", 9, "bold")
         )
 
-        self.gantt_canvas.configure(scrollregion=(0, 0, x_cursor + 30, 110))
+        # Draw Columns (one per reference)
+        for col_idx, step in enumerate(steps):
+            x1 = left_margin + col_idx * cell_w
+            x2 = x1 + cell_w - 4
+
+            # Header: Requested Page
+            self.grid_canvas.create_rectangle(
+                x1, top_margin, x2, top_margin + cell_h - 2,
+                fill=self.BG_INPUT, outline=""
+            )
+            self.grid_canvas.create_text(
+                (x1 + x2) / 2, top_margin + cell_h / 2,
+                text=str(step["page"]), fill=self.FG_TEXT, font=("Segoe UI", 10, "bold")
+            )
+
+            # Frame Cells
+            for f in range(num_frames):
+                y1 = top_margin + (f + 1) * cell_h
+                y2 = y1 + cell_h - 2
+                val = str(step["frames"][f]) if f < len(step["frames"]) else "-"
+                highlight = (val == str(step["page"]))
+                box_fill = "#1E3A5F" if highlight else self.BG_CARD
+
+                self.grid_canvas.create_rectangle(
+                    x1, y1, x2, y2, fill=box_fill, outline="#334155"
+                )
+                self.grid_canvas.create_text(
+                    (x1 + x2) / 2, (y1 + y2) / 2,
+                    text=val, fill=self.FG_TEXT, font=("Segoe UI", 10)
+                )
+
+            # Status Badge (HIT / FAULT)
+            sy1 = top_margin + (num_frames + 1) * cell_h + 2
+            sy2 = sy1 + cell_h - 4
+            is_hit = step["status"] == "HIT"
+            badge_bg = self.HIT_COLOR if is_hit else self.FAULT_COLOR
+            badge_fg = "#052E16" if is_hit else "#FFFFFF"
+
+            self.grid_canvas.create_rectangle(x1, sy1, x2, sy2, fill=badge_bg, outline="")
+            self.grid_canvas.create_text(
+                (x1 + x2) / 2, (sy1 + sy2) / 2,
+                text="HIT" if is_hit else "FAULT", fill=badge_fg, font=("Segoe UI", 8, "bold")
+            )
+
+        total_w = left_margin + len(steps) * cell_w + 20
+        total_h = top_margin + (num_frames + 2) * cell_h + 16
+        self.grid_canvas.configure(scrollregion=(0, 0, total_w, total_h))
+
+    def _populate_table(self, steps, num_frames):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        for s in steps:
+            padded = [str(x) for x in s["frames"]] + ["-"] * (num_frames - len(s["frames"]))
+            frames_str = " | ".join(padded)
+            self.tree.insert("", "end", values=(
+                s["step"], s["page"], frames_str, s["status"], s["replaced"]
+            ))
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = SchedulerApp(root)
+    app = PageReplacementApp(root)
     root.mainloop()
