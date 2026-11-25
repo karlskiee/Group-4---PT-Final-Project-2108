@@ -1,5 +1,3 @@
-# How to Run it
-
 # OS Page Replacement Simulator
 
 An interactive desktop GUI built with Python and Tkinter to visualize and compare **FIFO**, **Least Recently Used (LRU)**, and **Optimal** operating system page replacement algorithms.
