@@ -36,4 +36,4 @@ An interactive desktop GUI built with Python and Tkinter to visualize and compar
 4. **Launch** Visual Studio Code or any compiler that can *run* Tkinter.
 5. **Open** the extracted folder inside your editor/IDE.
 6. **Open** `Project_4_w-Guide.py` (or `project_four.py`).
-7. **Run** the Python file (click the **Run and `Start Debugging` or F5 in the keyboard** button in VS Code, or `run FileName` in the terminal).
+7. **Run** the Python file (Using VS Code click the **`Run` and `Start Debugging` or F5 button in your keyboard**).
